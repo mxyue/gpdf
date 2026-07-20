@@ -26,6 +26,9 @@ type TableColumn struct {
 
 // TableRow represents a horizontal row of cells within a table section.
 type TableRow struct {
+	// Height sets a minimum height for the row. The natural content height wins
+	// when it is larger than this value.
+	Height Value
 	// Cells holds the cells in this row.
 	Cells []TableCell
 }

@@ -573,6 +573,31 @@ func TestColBuilderTable(t *testing.T) {
 	}
 }
 
+func TestColBuilderTableCellDecorationsFillCells(t *testing.T) {
+	doc := New()
+	cb := &ColBuilder{doc: doc}
+	background := pdf.RGB(0.2, 0.3, 0.4)
+	stripe := pdf.Gray(0.95)
+	padding := document.UniformEdges(document.Mm(2))
+	cb.Table(
+		[]string{"H1"},
+		[][]string{{"V1"}, {"V2"}},
+		TableHeaderStyle(BgColor(background), TextColor(pdf.White)),
+		TableStripe(stripe),
+		TableCellPadding(padding),
+	)
+	tbl := cb.nodes[0].(*document.Table)
+	if tbl.Header[0].Cells[0].CellStyle.Background == nil {
+		t.Fatal("header background should fill the cell")
+	}
+	if tbl.Body[1].Cells[0].CellStyle.Background == nil {
+		t.Fatal("stripe background should fill the cell")
+	}
+	if tbl.Body[0].Cells[0].CellStyle.Padding != padding {
+		t.Fatalf("cell padding: got %#v, want %#v", tbl.Body[0].Cells[0].CellStyle.Padding, padding)
+	}
+}
+
 func TestColBuilderTableNoHeader(t *testing.T) {
 	doc := New()
 	cb := &ColBuilder{doc: doc}
@@ -609,6 +634,51 @@ func TestColBuilderTableWithColumnWidths(t *testing.T) {
 	}
 }
 
+func TestTableCellPaddingAndRowHeightOptions(t *testing.T) {
+	padding := document.Edges{
+		Top:    document.Mm(2),
+		Right:  document.Mm(3),
+		Bottom: document.Mm(4),
+		Left:   document.Mm(5),
+	}
+	cfg := tableConfig{}
+	TableCellPadding(padding)(&cfg)
+	TableRowHeight(document.Mm(12))(&cfg)
+	TableHeaderColumnSeparators(true)(&cfg)
+
+	if !cfg.hasCellPadding || cfg.cellPadding != padding {
+		t.Fatalf("cell padding: got %#v, want %#v", cfg.cellPadding, padding)
+	}
+	if !cfg.hasRowHeight || cfg.rowHeight != document.Mm(12) {
+		t.Fatalf("row height: got %#v, want %v", cfg.rowHeight, document.Mm(12))
+	}
+	if !cfg.headerColumnSeparators {
+		t.Fatal("header column separators should be enabled")
+	}
+}
+
+func TestColBuilderTableHeaderColumnSeparators(t *testing.T) {
+	doc := New()
+	cb := &ColBuilder{doc: doc}
+	cb.Table(
+		[]string{"H1", "H2"},
+		[][]string{{"V1", "V2"}},
+		TableHeaderStyle(BgColor(pdf.RGB(0.2, 0.3, 0.4)), TextColor(pdf.White)),
+		WithTableCellBorder(Border(BorderWidth(document.Pt(0.5)), BorderColor(pdf.RGB(0.2, 0.3, 0.4)))),
+		TableHeaderColumnSeparators(true),
+	)
+	tbl := cb.nodes[0].(*document.Table)
+	if tbl.Header[0].Cells[0].CellStyle.Border.Right.Color != pdf.White {
+		t.Fatal("header separator should use white on the right edge")
+	}
+	if tbl.Header[0].Cells[1].CellStyle.Border.Left.Color != pdf.White {
+		t.Fatal("header separator should use white on the left edge")
+	}
+	if tbl.Header[0].Cells[0].CellStyle.Border.Left.Color == pdf.White {
+		t.Fatal("outer left border should keep the table border color")
+	}
+}
+
 func TestColBuilderTableWithHeaderStyle(t *testing.T) {
 	doc := New()
 	cb := &ColBuilder{doc: doc}
@@ -622,8 +692,8 @@ func TestColBuilderTableWithHeaderStyle(t *testing.T) {
 	tbl := cb.nodes[0].(*document.Table)
 	headerCell := tbl.Header[0].Cells[0]
 	textNode := headerCell.Content[0].(*document.Text)
-	if textNode.TextStyle.Background == nil {
-		t.Error("header bg should not be nil")
+	if headerCell.CellStyle.Background == nil {
+		t.Error("header bg should fill the cell")
 	}
 	if textNode.TextStyle.Color != tc {
 		t.Errorf("header text color: got %v, want %v", textNode.TextStyle.Color, tc)
@@ -641,13 +711,11 @@ func TestColBuilderTableWithStripe(t *testing.T) {
 	)
 	tbl := cb.nodes[0].(*document.Table)
 	// Row 0 (even) should not have stripe.
-	cell0 := tbl.Body[0].Cells[0].Content[0].(*document.Text)
-	if cell0.TextStyle.Background != nil {
+	if tbl.Body[0].Cells[0].CellStyle.Background != nil {
 		t.Error("even row should not have stripe background")
 	}
 	// Row 1 (odd) should have stripe.
-	cell1 := tbl.Body[1].Cells[0].Content[0].(*document.Text)
-	if cell1.TextStyle.Background == nil {
+	if tbl.Body[1].Cells[0].CellStyle.Background == nil {
 		t.Error("odd row should have stripe background")
 	}
 }

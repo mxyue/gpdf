@@ -2318,6 +2318,27 @@ func TestLayoutTable_SimpleGrid(t *testing.T) {
 	}
 }
 
+func TestLayoutTableRow_MinimumHeight(t *testing.T) {
+	bl := NewBlockLayout()
+	tbl := &document.Table{
+		Columns: []document.TableColumn{{Width: document.Pct(100)}},
+		Body: []document.TableRow{{
+			Height: document.Pt(40),
+			Cells: []document.TableCell{{
+				Content: []document.DocumentNode{&document.Text{Content: "A", TextStyle: document.Style{FontSize: 12, LineHeight: 1.2}}},
+			}},
+		}},
+	}
+	result := bl.layoutTable(tbl, Constraints{
+		AvailableWidth:  400,
+		AvailableHeight: 700,
+		FontResolver:    &mockFontResolver{},
+	})
+	if result.Bounds.Height < 40 {
+		t.Fatalf("table height: got %v, want at least 40", result.Bounds.Height)
+	}
+}
+
 func TestLayoutTable_HeaderBodyFooter(t *testing.T) {
 	bl := NewBlockLayout()
 	mkRow := func(content string) document.TableRow {

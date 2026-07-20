@@ -150,6 +150,9 @@ func offsetPlacedNodes(nodes []PlacedNode, dx, dy float64) {
 func (bl *BlockLayout) layoutTableRow(row document.TableRow, colWidths []float64, colOffsets []float64, numCols int, constraints Constraints) ([]PlacedNode, float64) {
 	var placed []PlacedNode
 	maxHeight := 0.0
+	if !row.Height.IsAuto() {
+		maxHeight = row.Height.Resolve(constraints.AvailableHeight, 12)
+	}
 
 	colIdx := 0
 	for i := range row.Cells {
