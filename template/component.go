@@ -170,18 +170,23 @@ func WithImageBackground(c pdf.Color) ImageOption {
 type TableOption func(*tableConfig)
 
 type tableConfig struct {
-	headerBgColor   *pdf.Color
-	headerTextColor *pdf.Color
-	stripeColor     *pdf.Color
-	columnWidths    []float64
-	columnAligns    []document.TextAlign
-	cellVAlign      document.VerticalAlign
-	hasCellVAlign   bool
-	border          *BorderSpec
-	cellBorder      *BorderSpec
-	background      *pdf.Color
-	borderCollapse  bool
-	hasCollapse     bool
+	headerBgColor          *pdf.Color
+	headerTextColor        *pdf.Color
+	stripeColor            *pdf.Color
+	columnWidths           []float64
+	columnAligns           []document.TextAlign
+	cellVAlign             document.VerticalAlign
+	hasCellVAlign          bool
+	border                 *BorderSpec
+	cellBorder             *BorderSpec
+	background             *pdf.Color
+	borderCollapse         bool
+	hasCollapse            bool
+	cellPadding            document.Edges
+	hasCellPadding         bool
+	rowHeight              document.Value
+	hasRowHeight           bool
+	headerColumnSeparators bool
 }
 
 // TableHeaderStyle sets the header background and text color.
@@ -217,6 +222,31 @@ func TableCellVAlign(align document.VerticalAlign) TableOption {
 	return func(cfg *tableConfig) {
 		cfg.cellVAlign = align
 		cfg.hasCellVAlign = true
+	}
+}
+
+// TableCellPadding sets the padding applied to every header and body cell.
+func TableCellPadding(padding document.Edges) TableOption {
+	return func(cfg *tableConfig) {
+		cfg.cellPadding = padding
+		cfg.hasCellPadding = true
+	}
+}
+
+// TableRowHeight sets a minimum height applied to every header and body row.
+// Rows expand naturally when their content requires more space.
+func TableRowHeight(height document.Value) TableOption {
+	return func(cfg *tableConfig) {
+		cfg.rowHeight = height
+		cfg.hasRowHeight = true
+	}
+}
+
+// TableHeaderColumnSeparators enables white vertical separators between
+// header cells. It preserves the table's outer left and right border colors.
+func TableHeaderColumnSeparators(enabled bool) TableOption {
+	return func(cfg *tableConfig) {
+		cfg.headerColumnSeparators = enabled
 	}
 }
 
