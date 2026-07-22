@@ -173,6 +173,54 @@ type ColBuilder struct {
 	nodes []document.DocumentNode
 }
 
+// AutoRow adds a nested auto-height row inside the column. The row keeps its
+// columns together when the parent column crosses a page boundary.
+func (c *ColBuilder) AutoRow(fn func(r *RowBuilder)) {
+	rb := &RowBuilder{doc: c.doc}
+	if fn != nil {
+		fn(rb)
+	}
+	c.nodes = append(c.nodes, rb.build(document.Auto, true))
+}
+
+// TableCellFunc builds the content of one table cell.
+// The cell builder supports multiple text nodes and mixed-style rich text.
+type TableCellFunc func(cell *TableCellBuilder)
+
+// TableCellBuilder constructs the document nodes inside one table cell.
+type TableCellBuilder struct {
+	doc          *Document
+	defaultStyle document.Style
+	nodes        []document.DocumentNode
+}
+
+// Text adds a styled text block to the table cell.
+func (c *TableCellBuilder) Text(text string, opts ...TextOption) {
+	style := c.defaultStyle
+	for _, opt := range opts {
+		opt(&style)
+	}
+	c.nodes = append(c.nodes, &document.Text{Content: text, TextStyle: style})
+}
+
+// RichText adds mixed-style inline text to the table cell.
+func (c *TableCellBuilder) RichText(fn func(rt *RichTextBuilder), opts ...TextOption) {
+	blockStyle := c.defaultStyle
+	for _, opt := range opts {
+		opt(&blockStyle)
+	}
+	rtb := &RichTextBuilder{defaultStyle: blockStyle}
+	fn(rtb)
+	c.nodes = append(c.nodes, &document.RichText{
+		Fragments:  rtb.fragments,
+		BlockStyle: blockStyle,
+	})
+}
+
+func (c *TableCellBuilder) buildNodes() []document.DocumentNode {
+	return c.nodes
+}
+
 // Text adds a text element to the column.
 func (c *ColBuilder) Text(text string, opts ...TextOption) {
 	style := c.defaultStyle()
@@ -348,6 +396,72 @@ func (c *ColBuilder) Table(header []string, rows [][]string, opts ...TableOption
 
 	applyTableDecoration(tbl, &tblCfg)
 
+	c.nodes = append(c.nodes, tbl)
+}
+
+// TableWithCells adds a table whose cells can contain multiple independently
+// styled text nodes. Header and body callbacks receive a cell-local builder.
+func (c *ColBuilder) TableWithCells(header []TableCellFunc, rows [][]TableCellFunc, opts ...TableOption) {
+	tbl := &document.Table{}
+	tblCfg := tableConfig{}
+	for _, opt := range opts {
+		opt(&tblCfg)
+	}
+	cellOuter := tableCellOuterStyle(&tblCfg)
+	buildCell := func(fn TableCellFunc, style document.Style) document.TableCell {
+		cell := &TableCellBuilder{doc: c.doc, defaultStyle: style}
+		if fn != nil {
+			fn(cell)
+		}
+		return document.TableCell{Content: cell.buildNodes(), ColSpan: 1, RowSpan: 1, CellStyle: cellOuter}
+	}
+
+	if len(header) > 0 {
+		headerRow := document.TableRow{}
+		if tblCfg.hasRowHeight {
+			headerRow.Height = tblCfg.rowHeight
+		}
+		for j, fn := range header {
+			cellStyle := cellOuter
+			cellStyle.Background = tblCfg.headerBgColor
+			if tblCfg.headerColumnSeparators {
+				if j > 0 {
+					cellStyle.Border.Left.Color = pdf.White
+				}
+				if j < len(header)-1 {
+					cellStyle.Border.Right.Color = pdf.White
+				}
+			}
+			cell := buildCell(fn, c.tableHeaderCellStyle(&tblCfg, j))
+			cell.CellStyle = cellStyle
+			headerRow.Cells = append(headerRow.Cells, cell)
+		}
+		tbl.Header = []document.TableRow{headerRow}
+	}
+
+	for i, row := range rows {
+		bodyRow := document.TableRow{}
+		if tblCfg.hasRowHeight {
+			bodyRow.Height = tblCfg.rowHeight
+		}
+		for j, fn := range row {
+			cellStyle := cellOuter
+			if tblCfg.stripeColor != nil && i%2 == 1 {
+				cellStyle.Background = tblCfg.stripeColor
+			}
+			cell := buildCell(fn, c.tableBodyCellStyle(&tblCfg, i, j))
+			cell.CellStyle = cellStyle
+			bodyRow.Cells = append(bodyRow.Cells, cell)
+		}
+		tbl.Body = append(tbl.Body, bodyRow)
+	}
+
+	if len(tblCfg.columnWidths) > 0 {
+		for _, w := range tblCfg.columnWidths {
+			tbl.Columns = append(tbl.Columns, document.TableColumn{Width: document.Pct(w)})
+		}
+	}
+	applyTableDecoration(tbl, &tblCfg)
 	c.nodes = append(c.nodes, tbl)
 }
 

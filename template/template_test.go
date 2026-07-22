@@ -1973,6 +1973,46 @@ func TestColBuilder_RichText_GeneratesPDF(t *testing.T) {
 	}
 }
 
+func TestColBuilder_TableWithCellsSupportsMixedStyles(t *testing.T) {
+	doc := New()
+	cb := &ColBuilder{doc: doc}
+	cb.TableWithCells(
+		[]TableCellFunc{
+			func(cell *TableCellBuilder) { cell.Text("结果") },
+		},
+		[][]TableCellFunc{{
+			func(cell *TableCellBuilder) {
+				cell.Text("7", FontSize(10))
+				cell.Text("100.00%", FontSize(7), TextColor(pdf.RGB(0.2, 0.4, 0.8)))
+			},
+		}},
+	)
+
+	nodes := cb.buildNodes()
+	if len(nodes) != 1 {
+		t.Fatalf("nodes = %d, want 1", len(nodes))
+	}
+	table, ok := nodes[0].(*document.Table)
+	if !ok {
+		t.Fatalf("node type = %T, want *document.Table", nodes[0])
+	}
+	if len(table.Body) != 1 || len(table.Body[0].Cells) != 1 {
+		t.Fatalf("unexpected table body shape: %+v", table.Body)
+	}
+	cell := table.Body[0].Cells[0]
+	if len(cell.Content) != 2 {
+		t.Fatalf("cell content = %d, want 2", len(cell.Content))
+	}
+	count, ok := cell.Content[0].(*document.Text)
+	if !ok || count.TextStyle.FontSize != 10 {
+		t.Fatalf("count node/style = %#v, want 10pt text", cell.Content[0])
+	}
+	percentage, ok := cell.Content[1].(*document.Text)
+	if !ok || percentage.TextStyle.FontSize != 7 {
+		t.Fatalf("percentage node/style = %#v, want 7pt text", cell.Content[1])
+	}
+}
+
 // ---------------------------------------------------------------------------
 // extractJPEGDimensions / extractImageDimensions tests
 // ---------------------------------------------------------------------------
