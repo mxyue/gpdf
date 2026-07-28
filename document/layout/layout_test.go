@@ -2431,7 +2431,7 @@ func TestLayoutTableRow_ColSpan(t *testing.T) {
 		AvailableHeight: 700,
 		FontResolver:    &mockFontResolver{},
 	}
-	placed, rowHeight := bl.layoutTableRow(row, colWidths, colOffsets, 3, constraints)
+	placed, rowHeight := bl.layoutTableRow(row, colWidths, colOffsets, 3, constraints, false, false, false)
 	if len(placed) != 2 {
 		t.Fatalf("Expected 2 placed cells, got %d", len(placed))
 	}
@@ -2469,7 +2469,7 @@ func TestLayoutTableRow_ColSpanExceedsColumns(t *testing.T) {
 		AvailableHeight: 700,
 		FontResolver:    &mockFontResolver{},
 	}
-	placed, _ := bl.layoutTableRow(row, colWidths, colOffsets, 2, constraints)
+	placed, _ := bl.layoutTableRow(row, colWidths, colOffsets, 2, constraints, false, false, false)
 	if len(placed) != 1 {
 		t.Fatalf("Expected 1 placed cell, got %d", len(placed))
 	}
@@ -2500,9 +2500,39 @@ func TestLayoutTableRow_ZeroColSpanTreatedAsOne(t *testing.T) {
 		AvailableHeight: 700,
 		FontResolver:    &mockFontResolver{},
 	}
-	placed, _ := bl.layoutTableRow(row, colWidths, colOffsets, 2, constraints)
+	placed, _ := bl.layoutTableRow(row, colWidths, colOffsets, 2, constraints, false, false, false)
 	if len(placed) != 2 {
 		t.Fatalf("Expected 2 placed cells, got %d", len(placed))
+	}
+}
+
+func TestLayoutTableRowBorderCollapseRemovesOnlyOuterCellEdges(t *testing.T) {
+	bl := NewBlockLayout()
+	border := document.BorderEdges{
+		Top:    document.BorderSide{Width: document.Pt(1), Style: document.BorderSolid},
+		Right:  document.BorderSide{Width: document.Pt(1), Style: document.BorderSolid},
+		Bottom: document.BorderSide{Width: document.Pt(1), Style: document.BorderSolid},
+		Left:   document.BorderSide{Width: document.Pt(1), Style: document.BorderSolid},
+	}
+	row := document.TableRow{Cells: []document.TableCell{
+		{CellStyle: document.Style{Border: border}},
+		{CellStyle: document.Style{Border: border}},
+	}}
+	constraints := Constraints{AvailableWidth: 200, AvailableHeight: 700, FontResolver: &mockFontResolver{}}
+	placed, _ := bl.layoutTableRow(row, []float64{100, 100}, []float64{0, 100}, 2, constraints, true, true, true)
+	if len(placed) != 2 {
+		t.Fatalf("Expected 2 placed cells, got %d", len(placed))
+	}
+	left := placed[0].Node.Style().Border
+	right := placed[1].Node.Style().Border
+	if left.Top.Style != document.BorderNone || left.Left.Style != document.BorderNone {
+		t.Error("first cell should not draw the table top or left outer edge")
+	}
+	if right.Top.Style != document.BorderNone || right.Right.Style != document.BorderNone || right.Bottom.Style != document.BorderNone {
+		t.Error("last cell should not draw the table top, right, or bottom outer edge")
+	}
+	if left.Right.Style == document.BorderNone || right.Left.Style == document.BorderNone {
+		t.Error("the internal vertical border should remain")
 	}
 }
 

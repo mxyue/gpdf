@@ -149,7 +149,7 @@ func (p *Paginator) composePageLayout(
 
 	// Header at top of content area.
 	if len(headerPlaced) > 0 {
-		children = append(children, offsetNodes(headerPlaced, mx, my)...)
+		children = append(children, offsetNodes(clonePlacedNodes(headerPlaced), mx, my)...)
 	}
 
 	// Body below header.
@@ -161,7 +161,7 @@ func (p *Paginator) composePageLayout(
 	// Footer at bottom of content area.
 	if len(footerPlaced) > 0 {
 		footerY := my + contentHeight - footerHeight
-		children = append(children, offsetNodes(footerPlaced, mx, footerY)...)
+		children = append(children, offsetNodes(clonePlacedNodes(footerPlaced), mx, footerY)...)
 	}
 
 	// Adjust absolute-positioned nodes with OriginPage so their
@@ -217,6 +217,38 @@ func resolvePageNumbersInNodes(nodes []PlacedNode, pageNum, totalPages int) {
 		if len(nodes[i].Children) > 0 {
 			resolvePageNumbersInNodes(nodes[i].Children, pageNum, totalPages)
 		}
+	}
+}
+
+// clonePlacedNodes gives repeated header/footer instances independent text
+// nodes. Page-number resolution mutates text content after pagination, so
+// sharing those nodes would make overflow pages keep the first page number.
+func clonePlacedNodes(nodes []PlacedNode) []PlacedNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	cloned := make([]PlacedNode, len(nodes))
+	for i, node := range nodes {
+		cloned[i] = node
+		cloned[i].Node = clonePageNumberNode(node.Node)
+		cloned[i].Children = clonePlacedNodes(node.Children)
+	}
+	return cloned
+}
+
+func clonePageNumberNode(node document.DocumentNode) document.DocumentNode {
+	switch value := node.(type) {
+	case *document.Text:
+		cloned := *value
+		return &cloned
+	case *document.RichText:
+		cloned := *value
+		if value.Fragments != nil {
+			cloned.Fragments = append([]document.RichTextFragment(nil), value.Fragments...)
+		}
+		return &cloned
+	default:
+		return node
 	}
 }
 

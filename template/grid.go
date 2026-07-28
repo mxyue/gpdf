@@ -20,9 +20,10 @@ type PageBuilder struct {
 }
 
 type rowEntry struct {
-	height document.Value
-	auto   bool
-	fn     func(r *RowBuilder)
+	height    document.Value
+	auto      bool
+	breakable bool
+	fn        func(r *RowBuilder)
 }
 
 type absoluteEntry struct {
@@ -42,6 +43,13 @@ func (p *PageBuilder) Row(height document.Value, fn func(r *RowBuilder)) {
 // AutoRow adds a row whose height is determined automatically by its content.
 func (p *PageBuilder) AutoRow(fn func(r *RowBuilder)) {
 	p.rows = append(p.rows, rowEntry{auto: true, fn: fn})
+}
+
+// AutoRowBreakable adds an auto-height row that may split when its content
+// overflows the remaining page height. It is intended for long tables or
+// other content with its own internal pagination support.
+func (p *PageBuilder) AutoRowBreakable(fn func(r *RowBuilder)) {
+	p.rows = append(p.rows, rowEntry{auto: true, breakable: true, fn: fn})
 }
 
 // Absolute places content at fixed XY coordinates, removed from the
@@ -73,7 +81,7 @@ func (p *PageBuilder) Absolute(x, y document.Value, fn func(c *ColBuilder), opts
 func (p *PageBuilder) buildNodes() []document.DocumentNode {
 	var nodes []document.DocumentNode
 	for _, row := range p.rows {
-		rb := &RowBuilder{doc: p.doc}
+		rb := &RowBuilder{doc: p.doc, breakable: row.breakable}
 		if row.fn != nil {
 			row.fn(rb)
 		}
@@ -108,8 +116,9 @@ func (p *PageBuilder) buildNodes() []document.DocumentNode {
 
 // RowBuilder constructs columns within a row.
 type RowBuilder struct {
-	doc  *Document
-	cols []colEntry
+	doc       *Document
+	cols      []colEntry
+	breakable bool
 }
 
 type colEntry struct {
@@ -140,9 +149,9 @@ func (r *RowBuilder) build(height document.Value, auto bool) document.DocumentNo
 		BoxStyle: document.BoxStyle{
 			Direction: document.DirectionHorizontal,
 		},
-		BreakPolicy: document.BreakPolicy{
-			BreakInside: document.BreakAvoid,
-		},
+	}
+	if !r.breakable {
+		box.BreakPolicy.BreakInside = document.BreakAvoid
 	}
 
 	if !auto {

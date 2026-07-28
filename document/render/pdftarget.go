@@ -470,12 +470,18 @@ func (r *PDFRenderer) renderPlacedNode(pn layout.PlacedNode, offsetX, offsetY fl
 
 	// Render background if present.
 	if style.Background != nil {
-		if err := r.RenderRect(document.Rectangle{
-			X:      absX,
-			Y:      absY,
-			Width:  pn.Size.Width,
-			Height: pn.Size.Height,
-		}, RectStyle{FillColor: style.Background}); err != nil {
+		var err error
+		if style.Border.Radius.Amount > 0 {
+			err = r.RenderPath(roundedRectPath(absX, absY, pn.Size.Width, pn.Size.Height, resolveBorderRadius(style.Border.Radius, pn.Size.Width, pn.Size.Height, style.FontSize)), PathStyle{FillColor: style.Background})
+		} else {
+			err = r.RenderRect(document.Rectangle{
+				X:      absX,
+				Y:      absY,
+				Width:  pn.Size.Width,
+				Height: pn.Size.Height,
+			}, RectStyle{FillColor: style.Background})
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -579,6 +585,16 @@ func (r *PDFRenderer) renderBorders(pn layout.PlacedNode, style document.Style, 
 	y := absY
 	w := pn.Size.Width
 	h := pn.Size.Height
+	if border.Radius.Amount > 0 && uniformRoundedBorder(border) {
+		radius := resolveBorderRadius(border.Radius, w, h, style.FontSize)
+		pathStyle := PathStyle{StrokeColor: &border.Top.Color, StrokeWidth: border.Top.Width.Resolve(w, style.FontSize)}
+		if border.Top.Style == document.BorderDashed {
+			pathStyle.DashPattern = []float64{4, 3}
+		} else if border.Top.Style == document.BorderDotted {
+			pathStyle.DashPattern = []float64{1, 2}
+		}
+		return r.RenderPath(roundedRectPath(x, y, w, h, radius), pathStyle)
+	}
 
 	if border.Top.Style != document.BorderNone {
 		bw := border.Top.Width.Resolve(w, style.FontSize)
@@ -613,6 +629,57 @@ func (r *PDFRenderer) renderBorders(pn layout.PlacedNode, style document.Style, 
 		}
 	}
 	return nil
+}
+
+func uniformRoundedBorder(border document.BorderEdges) bool {
+	return border.Top.Style != document.BorderNone &&
+		border.Top.Style == border.Right.Style &&
+		border.Top.Style == border.Bottom.Style &&
+		border.Top.Style == border.Left.Style &&
+		border.Top.Color == border.Right.Color &&
+		border.Top.Color == border.Bottom.Color &&
+		border.Top.Color == border.Left.Color
+}
+
+func resolveBorderRadius(value document.Value, width, height, fontSize float64) float64 {
+	radius := value.Resolve(width, fontSize)
+	limit := width / 2
+	if height/2 < limit {
+		limit = height / 2
+	}
+	if radius < 0 {
+		return 0
+	}
+	if radius > limit {
+		return limit
+	}
+	return radius
+}
+
+func roundedRectPath(x, y, width, height, radius float64) document.Path {
+	if radius <= 0 {
+		return document.Path{Segments: []document.PathSegment{
+			{Op: document.PathMoveTo, Points: []document.Point{{X: x, Y: y}}},
+			{Op: document.PathLineTo, Points: []document.Point{{X: x + width, Y: y}}},
+			{Op: document.PathLineTo, Points: []document.Point{{X: x + width, Y: y + height}}},
+			{Op: document.PathLineTo, Points: []document.Point{{X: x, Y: y + height}}},
+			{Op: document.PathClose},
+		}}
+	}
+	const kappa = 0.5522847498
+	curve := kappa * radius
+	return document.Path{Segments: []document.PathSegment{
+		{Op: document.PathMoveTo, Points: []document.Point{{X: x + radius, Y: y}}},
+		{Op: document.PathLineTo, Points: []document.Point{{X: x + width - radius, Y: y}}},
+		{Op: document.PathCurveTo, Points: []document.Point{{X: x + width - radius + curve, Y: y}, {X: x + width, Y: y + radius - curve}, {X: x + width, Y: y + radius}}},
+		{Op: document.PathLineTo, Points: []document.Point{{X: x + width, Y: y + height - radius}}},
+		{Op: document.PathCurveTo, Points: []document.Point{{X: x + width, Y: y + height - radius + curve}, {X: x + width - radius + curve, Y: y + height}, {X: x + width - radius, Y: y + height}}},
+		{Op: document.PathLineTo, Points: []document.Point{{X: x + radius, Y: y + height}}},
+		{Op: document.PathCurveTo, Points: []document.Point{{X: x + radius - curve, Y: y + height}, {X: x, Y: y + height - radius + curve}, {X: x, Y: y + height - radius}}},
+		{Op: document.PathLineTo, Points: []document.Point{{X: x, Y: y + radius}}},
+		{Op: document.PathCurveTo, Points: []document.Point{{X: x, Y: y + radius - curve}, {X: x + radius - curve, Y: y}, {X: x + radius, Y: y}}},
+		{Op: document.PathClose},
+	}}
 }
 
 // ensureFont ensures the font is registered with the PDF writer and
