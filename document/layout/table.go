@@ -209,30 +209,15 @@ func (bl *BlockLayout) layoutTableRow(row document.TableRow, colWidths []float64
 
 		cellX := colOffsets[colIdx]
 
-		// Create a virtual container for the cell's content.
-		cellStyle := cell.CellStyle
-		if firstRow {
-			cellStyle.Border.Top = document.BorderSide{}
-		}
-		if lastRow {
-			cellStyle.Border.Bottom = document.BorderSide{}
-		}
-		if collapse && colIdx == 0 {
-			cellStyle.Border.Left = document.BorderSide{}
-		}
-		if collapse && colIdx+colSpan == numCols {
-			cellStyle.Border.Right = document.BorderSide{}
-		}
-		cellCopy := *cell
-		cellCopy.CellStyle = cellStyle
-		cell = &cellCopy
-
+		// Create a virtual container for the cell's content. Keep the cell's
+		// complete border intact; the table border-collapse option must not
+		// remove the cell edges that render the grid and outer boundary.
 		cellBox := &document.Box{
 			Content: cell.Content,
 			BoxStyle: document.BoxStyle{
-				Padding:    cellStyle.Padding,
-				Border:     cellStyle.Border,
-				Background: cellStyle.Background,
+				Padding:    cell.CellStyle.Padding,
+				Border:     cell.CellStyle.Border,
+				Background: cell.CellStyle.Background,
 			},
 		}
 

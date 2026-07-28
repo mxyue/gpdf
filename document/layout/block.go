@@ -733,7 +733,9 @@ func resolveFixedHeight(node document.DocumentNode, availWidth, fontSize float64
 func stretchPlacedNodes(nodes []PlacedNode, targetHeight float64) {
 	for i := range nodes {
 		nodes[i].Size.Height = targetHeight
-		stretchLastChild(nodes[i].Children, targetHeight)
+		if nodes[i].Node == nil || nodes[i].Node.NodeType() != document.NodeTable {
+			stretchLastChild(nodes[i].Children, targetHeight)
+		}
 	}
 }
 
@@ -747,6 +749,11 @@ func stretchLastChild(children []PlacedNode, parentHeight float64) {
 		return
 	}
 	last := &children[len(children)-1]
+	// Tables own their row and cell geometry. Parent row stretching must not
+	// recurse into the table's last cell.
+	if last.Node != nil && last.Node.NodeType() == document.NodeTable {
+		return
+	}
 	// Do not stretch image nodes — they have intrinsic aspect ratios.
 	if last.Node != nil && last.Node.NodeType() == document.NodeImage {
 		return

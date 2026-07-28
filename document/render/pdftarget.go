@@ -486,9 +486,13 @@ func (r *PDFRenderer) renderPlacedNode(pn layout.PlacedNode, offsetX, offsetY fl
 		}
 	}
 
-	// Render borders if any.
-	if err := r.renderBorders(pn, style, absX, absY); err != nil {
-		return err
+	// Table borders are rendered after the cells so a cell's thinner outer
+	// edge cannot paint over the table frame at the same coordinate.
+	isTable := pn.Node.NodeType() == document.NodeTable
+	if !isTable {
+		if err := r.renderBorders(pn, style, absX, absY); err != nil {
+			return err
+		}
 	}
 
 	// Render node-specific content.
@@ -521,7 +525,13 @@ func (r *PDFRenderer) renderPlacedNode(pn layout.PlacedNode, offsetX, offsetY fl
 	}
 
 	// Render children with this node's absolute position as offset.
-	return r.renderPlacedNodes(pn.Children, absX, absY)
+	if err := r.renderPlacedNodes(pn.Children, absX, absY); err != nil {
+		return err
+	}
+	if isTable {
+		return r.renderBorders(pn, style, absX, absY)
+	}
+	return nil
 }
 
 // renderTextDecoration draws underline, strikethrough, and/or overline
