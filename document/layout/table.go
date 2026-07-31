@@ -31,7 +31,10 @@ func (bl *BlockLayout) layoutTable(tbl *document.Table, constraints Constraints)
 	var placed []PlacedNode
 	cursorY := 0.0
 
-	// Layout header rows (always placed first).
+	// Layout header rows first, but defer placing them until the first body row
+	// is known to fit. Otherwise a table at the bottom of a page can leave a
+	// header-only fragment behind while the actual table starts on the next
+	// page.
 	headerPlaced, headerHeight := bl.layoutTableSection(
 		tbl.Header,
 		tc,
@@ -40,8 +43,6 @@ func (bl *BlockLayout) layoutTable(tbl *document.Table, constraints Constraints)
 		true,
 		len(tbl.Body) == 0 && len(tbl.Footer) == 0,
 	)
-	offsetPlacedNodes(headerPlaced, tc.contentX, tc.contentY)
-	placed = append(placed, headerPlaced...)
 	cursorY += headerHeight
 
 	// Layout body rows one at a time, checking for overflow.
@@ -57,6 +58,19 @@ func (bl *BlockLayout) layoutTable(tbl *document.Table, constraints Constraints)
 			tbl.TableStyle.BorderCollapse && i == len(tbl.Body)-1 && len(tbl.Footer) == 0,
 		)
 
+		if cursorY+rowHeight > contentAvailH && i == 0 && len(tbl.Header) > 0 {
+			// The header fits only as an isolated fragment. Defer the complete
+			// table so the next page can render its header with body content.
+			overflow := &document.Table{
+				Columns:    tbl.Columns,
+				Header:     tbl.Header,
+				Body:       tbl.Body,
+				Footer:     tbl.Footer,
+				TableStyle: tbl.TableStyle,
+			}
+			return bl.tableOverflowResult(tbl, constraints, tc, nil, 0, overflow)
+		}
+
 		if cursorY+rowHeight > contentAvailH && len(placed) > 0 {
 			// This row doesn't fit. Build an overflow table with header + remaining body + footer.
 			overflow := &document.Table{
@@ -69,6 +83,10 @@ func (bl *BlockLayout) layoutTable(tbl *document.Table, constraints Constraints)
 			return bl.tableOverflowResult(tbl, constraints, tc, placed, cursorY, overflow)
 		}
 
+		if len(placed) == 0 && len(headerPlaced) > 0 {
+			offsetPlacedNodes(headerPlaced, tc.contentX, tc.contentY)
+			placed = append(placed, headerPlaced...)
+		}
 		offsetPlacedNodes(rowPlaced, tc.contentX, tc.contentY+cursorY)
 		placed = append(placed, rowPlaced...)
 		cursorY += rowHeight
@@ -83,6 +101,10 @@ func (bl *BlockLayout) layoutTable(tbl *document.Table, constraints Constraints)
 		tbl.TableStyle.BorderCollapse && len(tbl.Header) == 0 && len(tbl.Body) == 0,
 		true,
 	)
+	if len(placed) == 0 && len(headerPlaced) > 0 {
+		offsetPlacedNodes(headerPlaced, tc.contentX, tc.contentY)
+		placed = append(placed, headerPlaced...)
+	}
 	offsetPlacedNodes(footerPlaced, tc.contentX, tc.contentY+cursorY)
 	placed = append(placed, footerPlaced...)
 	cursorY += footerHeight

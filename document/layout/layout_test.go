@@ -3030,6 +3030,34 @@ func TestTableHeaderRepeatOnOverflow(t *testing.T) {
 	}
 }
 
+func TestTableDefersHeaderWhenFirstBodyRowDoesNotFit(t *testing.T) {
+	bl := NewBlockLayout()
+	tbl := &document.Table{
+		Header: []document.TableRow{makeTestRow("Header")},
+		Body:   []document.TableRow{makeTestRow("Row 1")},
+	}
+	constraints := Constraints{
+		AvailableWidth:  200,
+		AvailableHeight: 20, // enough for the header alone, not the first body row
+		FontResolver:    &mockFontResolver{},
+	}
+
+	result := bl.layoutTable(tbl, constraints)
+	if result.Overflow == nil {
+		t.Fatal("Expected the table to overflow")
+	}
+	if len(result.Children) != 0 {
+		t.Fatalf("Expected no table nodes on the current page, got %d", len(result.Children))
+	}
+	overflowTbl, ok := result.Overflow.(*document.Table)
+	if !ok {
+		t.Fatalf("Overflow should be a *Table, got %T", result.Overflow)
+	}
+	if len(overflowTbl.Header) != 1 || len(overflowTbl.Body) != 1 {
+		t.Fatalf("Overflow table should preserve header and body, got %d header rows and %d body rows", len(overflowTbl.Header), len(overflowTbl.Body))
+	}
+}
+
 func TestTableFitsNoOverflow(t *testing.T) {
 	bl := NewBlockLayout()
 	tbl := &document.Table{
