@@ -108,6 +108,7 @@ const (
 // BorderEdges defines border styling for each side of a box.
 type BorderEdges struct {
 	Top, Right, Bottom, Left BorderSide
+	Radius                   Value
 }
 
 // BorderSide defines the visual properties of a single border edge.

@@ -13,6 +13,7 @@ import (
 // The zero value of BorderSpec disables the border on all four edges.
 type BorderSpec struct {
 	top, right, bottom, left document.Value
+	radius                   document.Value
 	color                    pdf.Color
 	style                    document.BorderStyle
 	hasWidth                 bool
@@ -67,6 +68,11 @@ func BorderLine(style document.BorderStyle) BorderOption {
 	return func(s *BorderSpec) { s.style = style }
 }
 
+// BorderRadius sets the radius of the box corners.
+func BorderRadius(v document.Value) BorderOption {
+	return func(s *BorderSpec) { s.radius = v }
+}
+
 // toEdges converts the spec to a [document.BorderEdges] value, applying the
 // uniform color and line style to every side. Edges with zero width fall back
 // to [document.BorderNone] so the renderer skips them.
@@ -83,5 +89,6 @@ func (s BorderSpec) toEdges() document.BorderEdges {
 		Right:  side(s.right),
 		Bottom: side(s.bottom),
 		Left:   side(s.left),
+		Radius: s.radius,
 	}
 }

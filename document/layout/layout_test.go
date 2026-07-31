@@ -2431,7 +2431,7 @@ func TestLayoutTableRow_ColSpan(t *testing.T) {
 		AvailableHeight: 700,
 		FontResolver:    &mockFontResolver{},
 	}
-	placed, rowHeight := bl.layoutTableRow(row, colWidths, colOffsets, 3, constraints)
+	placed, rowHeight := bl.layoutTableRow(row, colWidths, colOffsets, 3, constraints, false, false, false)
 	if len(placed) != 2 {
 		t.Fatalf("Expected 2 placed cells, got %d", len(placed))
 	}
@@ -2469,7 +2469,7 @@ func TestLayoutTableRow_ColSpanExceedsColumns(t *testing.T) {
 		AvailableHeight: 700,
 		FontResolver:    &mockFontResolver{},
 	}
-	placed, _ := bl.layoutTableRow(row, colWidths, colOffsets, 2, constraints)
+	placed, _ := bl.layoutTableRow(row, colWidths, colOffsets, 2, constraints, false, false, false)
 	if len(placed) != 1 {
 		t.Fatalf("Expected 1 placed cell, got %d", len(placed))
 	}
@@ -2500,9 +2500,78 @@ func TestLayoutTableRow_ZeroColSpanTreatedAsOne(t *testing.T) {
 		AvailableHeight: 700,
 		FontResolver:    &mockFontResolver{},
 	}
-	placed, _ := bl.layoutTableRow(row, colWidths, colOffsets, 2, constraints)
+	placed, _ := bl.layoutTableRow(row, colWidths, colOffsets, 2, constraints, false, false, false)
 	if len(placed) != 2 {
 		t.Fatalf("Expected 2 placed cells, got %d", len(placed))
+	}
+}
+
+func TestLayoutTableRowBorderCollapsePreservesCellEdges(t *testing.T) {
+	bl := NewBlockLayout()
+	border := document.BorderEdges{
+		Top:    document.BorderSide{Width: document.Pt(1), Style: document.BorderSolid},
+		Right:  document.BorderSide{Width: document.Pt(1), Style: document.BorderSolid},
+		Bottom: document.BorderSide{Width: document.Pt(1), Style: document.BorderSolid},
+		Left:   document.BorderSide{Width: document.Pt(1), Style: document.BorderSolid},
+	}
+	row := document.TableRow{Cells: []document.TableCell{
+		{CellStyle: document.Style{Border: border}},
+		{CellStyle: document.Style{Border: border}},
+	}}
+	constraints := Constraints{AvailableWidth: 200, AvailableHeight: 700, FontResolver: &mockFontResolver{}}
+	placed, _ := bl.layoutTableRow(row, []float64{100, 100}, []float64{0, 100}, 2, constraints, true, true, true)
+	if len(placed) != 2 {
+		t.Fatalf("Expected 2 placed cells, got %d", len(placed))
+	}
+	left := placed[0].Node.Style().Border
+	right := placed[1].Node.Style().Border
+	for name, side := range map[string]document.BorderSide{
+		"left.top":     left.Top,
+		"left.right":   left.Right,
+		"left.bottom":  left.Bottom,
+		"left.left":    left.Left,
+		"right.top":    right.Top,
+		"right.right":  right.Right,
+		"right.bottom": right.Bottom,
+		"right.left":   right.Left,
+	} {
+		if side.Style == document.BorderNone {
+			t.Errorf("%s border was removed", name)
+		}
+	}
+}
+
+func TestLayoutTableBottomRowCellHeights(t *testing.T) {
+	bl := NewBlockLayout()
+	border := document.UniformBorder(document.Pt(0.4), document.BorderSolid, pdf.Black)
+	tbl := &document.Table{
+		Columns: []document.TableColumn{{Width: document.Pct(50)}, {Width: document.Pct(50)}},
+		Header: []document.TableRow{{Cells: []document.TableCell{
+			{Content: []document.DocumentNode{&document.Text{Content: "A", TextStyle: document.Style{FontSize: 12, LineHeight: 1.2}}}, CellStyle: document.Style{Border: border}},
+			{Content: []document.DocumentNode{&document.Text{Content: "B", TextStyle: document.Style{FontSize: 12, LineHeight: 1.2}}}, CellStyle: document.Style{Border: border}},
+		}}},
+		Body: []document.TableRow{{Cells: []document.TableCell{
+			{Content: []document.DocumentNode{&document.Text{Content: "C", TextStyle: document.Style{FontSize: 12, LineHeight: 1.2}}}, CellStyle: document.Style{Border: border}},
+			{Content: []document.DocumentNode{&document.Text{Content: "D", TextStyle: document.Style{FontSize: 12, LineHeight: 1.2}}}, CellStyle: document.Style{Border: border}},
+		}}},
+		TableStyle: document.TableStyle{BoxStyle: document.BoxStyle{Border: document.UniformBorder(document.Pt(0.8), document.BorderSolid, pdf.Black)}, BorderCollapse: true},
+	}
+	outer := &document.Box{
+		Content: []document.DocumentNode{tbl},
+		BoxStyle: document.BoxStyle{
+			Direction: document.DirectionHorizontal,
+			Height:    document.Pt(40),
+		},
+	}
+	result := bl.Layout(outer, Constraints{AvailableWidth: 200, AvailableHeight: 700, FontResolver: &mockFontResolver{}})
+	if len(result.Children) != 1 || len(result.Children[0].Children) != 4 {
+		t.Fatalf("table children = %d, want 4", len(result.Children[0].Children))
+	}
+	children := result.Children[0].Children
+	leftBottom := children[2].Position.Y + children[2].Size.Height
+	rightBottom := children[3].Position.Y + children[3].Size.Height
+	if !approxEqual(leftBottom, rightBottom, 0.01) {
+		t.Fatalf("bottom row cell bottoms differ: left=%v right=%v", leftBottom, rightBottom)
 	}
 }
 
@@ -2958,6 +3027,34 @@ func TestTableHeaderRepeatOnOverflow(t *testing.T) {
 	}
 	if len(overflowTbl.Body) == 0 {
 		t.Error("Overflow table should have remaining body rows")
+	}
+}
+
+func TestTableDefersHeaderWhenFirstBodyRowDoesNotFit(t *testing.T) {
+	bl := NewBlockLayout()
+	tbl := &document.Table{
+		Header: []document.TableRow{makeTestRow("Header")},
+		Body:   []document.TableRow{makeTestRow("Row 1")},
+	}
+	constraints := Constraints{
+		AvailableWidth:  200,
+		AvailableHeight: 20, // enough for the header alone, not the first body row
+		FontResolver:    &mockFontResolver{},
+	}
+
+	result := bl.layoutTable(tbl, constraints)
+	if result.Overflow == nil {
+		t.Fatal("Expected the table to overflow")
+	}
+	if len(result.Children) != 0 {
+		t.Fatalf("Expected no table nodes on the current page, got %d", len(result.Children))
+	}
+	overflowTbl, ok := result.Overflow.(*document.Table)
+	if !ok {
+		t.Fatalf("Overflow should be a *Table, got %T", result.Overflow)
+	}
+	if len(overflowTbl.Header) != 1 || len(overflowTbl.Body) != 1 {
+		t.Fatalf("Overflow table should preserve header and body, got %d header rows and %d body rows", len(overflowTbl.Header), len(overflowTbl.Body))
 	}
 }
 

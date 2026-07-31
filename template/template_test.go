@@ -1535,6 +1535,29 @@ func TestFooterWithPageNumber(t *testing.T) {
 	}
 }
 
+func TestFooterWithPageNumberAcrossOverflowPages(t *testing.T) {
+	doc := New()
+	doc.Footer(func(p *PageBuilder) {
+		p.AutoRow(func(r *RowBuilder) {
+			r.Col(12, func(c *ColBuilder) { c.PageNumber() })
+		})
+	})
+	page := doc.AddPage()
+	page.AutoRow(func(r *RowBuilder) {
+		r.Col(12, func(c *ColBuilder) {
+			c.Text(strings.Repeat("overflow ", 5000))
+		})
+	})
+
+	data, err := doc.Generate()
+	if err != nil {
+		t.Fatalf("Generate error: %v", err)
+	}
+	if strings.Count(string(data), "(1)") == 0 || strings.Count(string(data), "(2)") == 0 {
+		t.Error("expected independent page numbers on overflow pages")
+	}
+}
+
 func TestHeaderWithTotalPages(t *testing.T) {
 	doc := New()
 	doc.Header(func(p *PageBuilder) {
