@@ -2,6 +2,7 @@ package layout
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/gpdf-dev/gpdf/document"
 )
@@ -68,7 +69,7 @@ func (fl *FlowLayout) LayoutText(text string, style document.Style, constraints 
 	for i, line := range lines {
 		// Check whether this line fits in the remaining vertical space.
 		if cursorY+lineSpacing > inner.AvailableHeight {
-			return overflowResult(lines[i:], style, constraints.AvailableWidth, cursorY+verticalInset, placed)
+			return overflowResult(text, lines, i, style, constraints.AvailableWidth, cursorY+verticalInset, placed)
 		}
 
 		lineWidth := measureLineWidth(line, style, fontSize, inner)
@@ -116,7 +117,13 @@ func breakTextLinesIndented(text string, style document.Style, fontSize, indent 
 	}
 
 	// The first element is the first line; re-break the rest at full width.
-	rest := joinLines(firstLines[1:])
+	// The rest is sliced from the source rather than re-joined: re-joining has
+	// to guess a separator, and CJK text can break after any rune without one,
+	// which would inject stray spaces into Chinese words.
+	rest, ok := sourceAfterLine(text, firstLines[0])
+	if !ok {
+		rest = joinLines(firstLines[1:])
+	}
 	remaining := breakTextLines(rest, style, fontSize, constraints.AvailableWidth, constraints)
 	return append(firstLines[:1], remaining...)
 }
@@ -183,8 +190,8 @@ func placeLine(line string, lineWidth float64, style document.Style, isLastLine 
 }
 
 // overflowResult builds a Result for text that does not fit vertically.
-func overflowResult(remaining []string, style document.Style, availWidth, cursorY float64, placed []PlacedNode) Result {
-	overflowText := joinLines(remaining)
+func overflowResult(text string, lines []string, idx int, style document.Style, availWidth, cursorY float64, placed []PlacedNode) Result {
+	overflowText := sourceTextFromLine(text, lines, idx)
 	overflow := &document.Text{
 		Content:   overflowText,
 		TextStyle: style,
@@ -623,15 +630,110 @@ func rebuildRichTextOverflow(lines [][]textRun, blockStyle document.Style, bp do
 	}
 }
 
-// joinLines concatenates lines with a single space separator, restoring
-// the original text for overflow handling.
+// joinLines concatenates wrapped lines back into text. A Latin word break
+// consumed the space it broke on, so that space has to be restored; a CJK
+// break consumed nothing, so joining must not invent one. Callers that still
+// have the source text should slice it instead (see sourceAfterLine).
 func joinLines(lines []string) string {
 	if len(lines) == 0 {
 		return ""
 	}
 	result := lines[0]
 	for _, l := range lines[1:] {
-		result += " " + l
+		if joinNeedsSpace(result, l) {
+			result += " "
+		}
+		result += l
 	}
 	return result
+}
+
+// joinNeedsSpace reports whether a space separator must be restored between
+// two wrapped lines. Only a boundary where both sides are CJK is known to be
+// a space-free break, because CJK text may be broken after any rune.
+func joinNeedsSpace(prev, next string) bool {
+	if prev == "" || next == "" {
+		return false
+	}
+	if strings.HasSuffix(prev, " ") || strings.HasPrefix(next, " ") {
+		return false
+	}
+	return !(isCJKRune(lastRune(prev)) && isCJKRune(firstRune(next)))
+}
+
+// isLineSeparator reports whether b is a character a line breaker may have
+// consumed at a break point: the space at a word break, or a newline.
+func isLineSeparator(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+// sourceAfterLine returns the part of text that follows the wrapped line,
+// also dropping the single separator the line breaker consumed at the break
+// point. ok is false when line is not a literal piece of text, which means
+// the lines cannot be traced back to the source and the caller must fall
+// back to re-joining them.
+func sourceAfterLine(text, line string) (rest string, ok bool) {
+	if line == "" {
+		if len(text) > 0 && isLineSeparator(text[0]) {
+			return text[1:], true
+		}
+		return text, true
+	}
+	if !strings.HasPrefix(text, line) {
+		return "", false
+	}
+	rest = text[len(line):]
+	if len(rest) > 0 && isLineSeparator(rest[0]) {
+		rest = rest[1:]
+	}
+	return rest, true
+}
+
+// sourceTextFromLine returns the source text starting at lines[idx]. It is
+// used to hand overflowed text to the next page without re-joining, which
+// would corrupt CJK text with inserted spaces. Falls back to joinLines when
+// the wrapped lines no longer line up with the source.
+func sourceTextFromLine(text string, lines []string, idx int) string {
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(lines) {
+		return ""
+	}
+	rest := text
+	for i := 0; i < idx; i++ {
+		next, ok := sourceAfterLine(rest, lines[i])
+		if !ok {
+			return joinLines(lines[idx:])
+		}
+		rest = next
+	}
+	return rest
+}
+
+// isCJKRune reports whether r is a CJK ideograph, kana, Hangul or one of the
+// fullwidth/CJK punctuation ranges, i.e. a character that may be broken after
+// without any space in the source.
+func isCJKRune(r rune) bool {
+	return unicode.Is(unicode.Han, r) ||
+		unicode.Is(unicode.Hiragana, r) ||
+		unicode.Is(unicode.Katakana, r) ||
+		unicode.Is(unicode.Hangul, r) ||
+		(r >= 0x3000 && r <= 0x303F) ||
+		(r >= 0xFF00 && r <= 0xFFEF)
+}
+
+func firstRune(s string) rune {
+	for _, r := range s {
+		return r
+	}
+	return 0
+}
+
+func lastRune(s string) rune {
+	var last rune
+	for _, r := range s {
+		last = r
+	}
+	return last
 }
